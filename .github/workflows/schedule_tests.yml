@@ -180,7 +180,7 @@ jobs:
           - rdbms: base-database-service-26ai
     runs-on: [ self-hosted, Linux, X64, OracleTestPilot ]
     name: Oracle Test Pilot Tests
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -197,28 +197,27 @@ jobs:
       - name: Install and upgrade packaging tools
         run: python -m pip install --upgrade pip wheel
       - run: python -m pip install -r tests/requirements/py3.txt -r tests/requirements/oracle.txt -e .
+      - name: Create Oracle Test Pilot settings file
+        run: mv ./.github/workflows/data/test_oracle_test_pilot.py.tpl ./tests/test_oracle_test_pilot.py
 
       - id: create_database
         uses: oracle-actions/setup-testpilot@aec84678697e1648ddb8e8a480cf3ceda746ce5c # v1.0.24
         with:
           oci-service: ${{ matrix.rdbms }}
           action: create
-          user: django
-          connection-string-format: tns
+          user: django_tests_default,django_tests_other
+          connection-string-format: easy-connect
 
       - name: Remove double quotes from connection string suffix
         run: |
           TESTPILOT_CONNECTION_STRING_SUFFIX=${{ steps.create_database.outputs.connection_string_suffix }}
-          TESTPILOT_CONNECTION_STRING_SUFFIX_WDQ=${TESTPILOT_CONNECTION_STRING_SUFFIX:1:-1}
+          TESTPILOT_CONNECTION_STRING_SUFFIX_WDQ=${TESTPILOT_CONNECTION_STRING_SUFFIX}
           echo "TESTPILOT_CONNECTION_STRING_SUFFIX=$TESTPILOT_CONNECTION_STRING_SUFFIX_WDQ" >> $GITHUB_ENV
         shell: bash
 
-      - name: Create Oracle settings file
-        run: mv ./.github/workflows/data/test_oracle.py.tpl ./tests/test_oracle.py
-
       - name: Run tests
         env:
-          TESTPILOT_USERNAME: django_${{ github.run_number }}
+          TESTPILOT_USERNAME: django_tests_default_${{ github.run_number }}
           TESTPILOT_PASSWORD: ${{ steps.create_database.outputs.database_password }}
           TESTPILOT_CONNECTION_STRING_SUFFIX: ${{ env.TESTPILOT_CONNECTION_STRING_SUFFIX }}
           RUNID: ${{ github.run_number }}
@@ -226,14 +225,14 @@ jobs:
           TESTPILOT_CLIENT_ID: ""
           TESTPILOT_TOKEN: ""
         working-directory: ./tests/
-        run: python -Wall runtests.py --settings=test_oracle --verbosity=2
+        run: python -Wall runtests.py --settings=test_oracle_test_pilot --verbosity=2 --timing --parallel auto
 
       - uses: oracle-actions/setup-testpilot@aec84678697e1648ddb8e8a480cf3ceda746ce5c # v1.0.24
         if: always()
         with:
           oci-service: ${{ matrix.rdbms }}
           action: delete
-          user: django
+          user: django_tests_default,django_tests_other
 
 #  postgresql:
 #    strategy:

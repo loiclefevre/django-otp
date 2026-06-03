@@ -1,10 +1,17 @@
+import copy
+import os
 import sys
+from contextlib import contextmanager
 
+from django.apps import apps
 from django.conf import settings
+from django.core.management import call_command
 from django.db import DatabaseError
 from django.db.backends.base.creation import BaseDatabaseCreation
 from django.utils.crypto import get_random_string
 from django.utils.functional import cached_property
+
+from .connect import easy_connect_parts
 
 TEST_DATABASE_PREFIX = "test_"
 
@@ -30,6 +37,10 @@ class DatabaseCreation(BaseDatabaseCreation):
 
     def _create_test_db(self, verbosity=1, autoclobber=False, keepdb=False):
         parameters = self._get_test_db_params()
+        if not self._test_database_create() and not self._test_user_create():
+            self._switch_to_test_user(parameters)
+            return self.connection.settings_dict["NAME"]
+
         with self._maindb_connection.cursor() as cursor:
             if self._test_database_create():
                 try:
@@ -391,7 +402,8 @@ class DatabaseCreation(BaseDatabaseCreation):
         settings_dict = self.connection.settings_dict
         val = settings_dict["TEST"].get(key, default)
         if val is None and prefixed:
-            val = TEST_DATABASE_PREFIX + settings_dict[prefixed]
+            prefixed_value = settings_dict[prefixed]
+            val = TEST_DATABASE_PREFIX + prefixed_value if prefixed_value else None
         return val
 
     def _test_database_name(self):
@@ -462,10 +474,144 @@ class DatabaseCreation(BaseDatabaseCreation):
 
     def test_db_signature(self):
         settings_dict = self.connection.settings_dict
+        connection_parts = easy_connect_parts(settings_dict["NAME"])
         return (
-            settings_dict["HOST"],
-            settings_dict["PORT"],
+            settings_dict["HOST"] or connection_parts.get("HOST", ""),
+            settings_dict["PORT"] or connection_parts.get("PORT", ""),
             settings_dict["ENGINE"],
-            settings_dict["NAME"],
+            settings_dict.get("SERVICE_NAME")
+            or connection_parts.get("SERVICE_NAME")
+            or settings_dict["NAME"],
             self._test_database_user(),
         )
+
+    @contextmanager
+    def _temporary_connection_settings(self, settings_dict):
+        alias = self.connection.alias
+        real_settings = settings.DATABASES[alias]
+        saved_real_settings = copy.deepcopy(real_settings)
+        saved_connection_settings = copy.deepcopy(self.connection.settings_dict)
+        saved_maindb_connection = self.__dict__.pop("_maindb_connection", None)
+        same_settings_dict = real_settings is self.connection.settings_dict
+
+        self._close_connection_and_pool(self.connection)
+        real_settings.clear()
+        real_settings.update(copy.deepcopy(settings_dict))
+        if not same_settings_dict:
+            self.connection.settings_dict.clear()
+            self.connection.settings_dict.update(copy.deepcopy(settings_dict))
+        try:
+            yield
+        finally:
+            self._close_connection_and_pool(self.connection)
+            temporary_maindb_connection = self.__dict__.pop("_maindb_connection", None)
+            if temporary_maindb_connection is not None:
+                self._close_connection_and_pool(temporary_maindb_connection)
+            real_settings.clear()
+            real_settings.update(saved_real_settings)
+            if not same_settings_dict:
+                self.connection.settings_dict.clear()
+                self.connection.settings_dict.update(saved_connection_settings)
+            if saved_maindb_connection is not None:
+                self.__dict__["_maindb_connection"] = saved_maindb_connection
+
+    @staticmethod
+    def _close_connection_and_pool(connection):
+        connection.close()
+        if connection.is_pool:
+            pool_key = (connection.alias, connection.settings_dict["USER"])
+            if pool_key in connection._connection_pools:
+                connection.close_pool()
+
+    def _migrate_test_schema(self, verbosity):
+        try:
+            if self.connection.settings_dict["TEST"]["MIGRATE"] is False:
+                old_migration_modules = settings.MIGRATION_MODULES
+                settings.MIGRATION_MODULES = {
+                    app.label: None for app in apps.get_app_configs()
+                }
+            call_command(
+                "migrate",
+                verbosity=max(verbosity - 1, 0),
+                interactive=False,
+                database=self.connection.alias,
+                run_syncdb=True,
+            )
+        finally:
+            if self.connection.settings_dict["TEST"]["MIGRATE"] is False:
+                settings.MIGRATION_MODULES = old_migration_modules
+
+        call_command("createcachetable", database=self.connection.alias)
+        self.connection.ensure_connection()
+
+    def _clone_test_db(self, suffix, verbosity, keepdb=False):
+        clone_settings = self.get_test_db_clone_settings(suffix)
+        if verbosity >= 1:
+            self.log(
+                "Creating Oracle test clone for alias '%s' using user '%s'..."
+                % (self.connection.alias, clone_settings["USER"])
+            )
+
+        with self._temporary_connection_settings(clone_settings):
+            if self._test_database_create() or self._test_user_create():
+                self._create_test_db(
+                    verbosity=verbosity,
+                    autoclobber=True,
+                    keepdb=keepdb,
+                )
+            self._migrate_test_schema(verbosity)
+
+    def get_test_db_clone_settings(self, suffix):
+        """
+        Return a modified connection settings dict for the n-th clone of a DB.
+        """
+        # When this function is called, the test database has been created
+        # already and its name has been copied to settings_dict['NAME'] so
+        # we don't need to call _get_test_db_name.
+        orig_settings_dict = self.connection.settings_dict
+        settings_dict = copy.deepcopy(orig_settings_dict)
+        settings_dict["USER"] = self._clone_user_name(
+            orig_settings_dict["USER"],
+            suffix,
+        )
+        settings_dict["TEST"]["USER"] = self._clone_user_name(
+            orig_settings_dict["TEST"]["USER"],
+            suffix,
+        )
+        if settings_dict["TEST"].get("PASSWORD") is None:
+            settings_dict["TEST"]["PASSWORD"] = orig_settings_dict["PASSWORD"]
+        settings_dict["PASSWORD"] = settings_dict["TEST"]["PASSWORD"]
+        return settings_dict
+
+    @staticmethod
+    def _clone_user_name(user, suffix):
+        if "%s" in user:
+            return user % suffix
+
+        runid = os.environ.get("RUNID", "")
+        if runid and user.endswith(runid):
+            prefix = user[: -len(runid)]
+            return "{}{}_{}".format(prefix, suffix, runid)
+
+        return "{}_{}".format(user, suffix)
+
+    def destroy_test_db(
+        self, old_database_name=None, verbosity=1, keepdb=False, suffix=None
+    ):
+        if suffix is None:
+            return super().destroy_test_db(old_database_name, verbosity, keepdb)
+
+        clone_settings = self.get_test_db_clone_settings(suffix)
+        with self._temporary_connection_settings(clone_settings):
+            return super().destroy_test_db(None, verbosity, keepdb)
+
+    def setup_worker_connection(self, _worker_id):
+        super().setup_worker_connection(_worker_id)
+        self._clear_content_type_cache()
+
+    @staticmethod
+    def _clear_content_type_cache():
+        if apps.is_installed("django.contrib.contenttypes"):
+            from django.contrib.contenttypes.models import ContentType
+
+            ContentType.objects.clear_cache()

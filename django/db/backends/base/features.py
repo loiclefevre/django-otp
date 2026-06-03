@@ -242,6 +242,7 @@ class BaseDatabaseFeatures:
     # Can the backend clone databases for parallel test execution?
     # Defaults to False to allow third-party backends to opt-in.
     can_clone_databases = False
+    can_clone_databases_in_parallel = False
 
     # Does the backend consider table names with different casing to
     # be equal?

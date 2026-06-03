@@ -2,6 +2,8 @@ from django.db import DatabaseError, InterfaceError
 from django.db.backends.base.features import BaseDatabaseFeatures
 from django.utils.functional import cached_property
 
+from .connect import has_testpilot_connection_string
+
 
 class DatabaseFeatures(BaseDatabaseFeatures):
     minimum_database_version = (19,)
@@ -18,6 +20,8 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     has_select_for_update_skip_locked = True
     has_select_for_update_of = True
     select_for_update_of_column = True
+    can_clone_databases = has_testpilot_connection_string()
+    can_clone_databases_in_parallel = has_testpilot_connection_string()
     can_return_columns_from_insert = True
     can_return_rows_from_update = True
     supports_subqueries_in_group_by = False

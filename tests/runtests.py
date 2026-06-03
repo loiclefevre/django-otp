@@ -383,12 +383,16 @@ def django_tests(
     if not hasattr(settings, "TEST_RUNNER"):
         settings.TEST_RUNNER = "django.test.runner.DiscoverRunner"
 
+    # This doesn't work before django.setup() on some databases.
+    can_clone_databases = all(
+        conn.features.can_clone_databases for conn in connections.all()
+    )
     if parallel in {0, "auto"}:
-        # This doesn't work before django.setup() on some databases.
-        if all(conn.features.can_clone_databases for conn in connections.all()):
-            parallel = max_parallel
-        else:
-            parallel = 1
+        parallel = max_parallel if can_clone_databases else 1
+    elif parallel > 1 and not can_clone_databases:
+        if verbosity >= 1:
+            print("Database cloning unavailable, running with 1 process.")
+        parallel = 1
 
     TestRunner = get_runner(settings)
     TestRunner.parallel_test_suite.process_setup = setup_run_tests

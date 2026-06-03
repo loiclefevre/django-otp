@@ -562,6 +562,12 @@ class ParallelTestSuite(unittest.TestSuite):
         # Don't buffer in the main process to avoid error propagation issues.
         result.buffer = False
 
+        # Avoid forking worker processes with live database connections. Some
+        # database drivers don't support inheriting connection state across
+        # fork(), and each worker configures its own clone connection in
+        # _init_worker().
+        connections.close_all()
+
         with multiprocessing.Pool(
             processes=self.processes,
             initializer=functools.partial(_safe_init_worker, self.init_worker.__func__),

@@ -93,6 +93,14 @@ class BulkInsertMapper:
 
 
 def dsn(settings_dict):
+    if settings_dict.get("SERVICE_NAME"):
+        host = settings_dict["HOST"].strip() or "localhost"
+        port = settings_dict["PORT"] or 1521
+        return Database.makedsn(
+            host,
+            int(port),
+            service_name=settings_dict["SERVICE_NAME"],
+        )
     if settings_dict["PORT"]:
         host = settings_dict["HOST"].strip() or "localhost"
         return Database.makedsn(host, int(settings_dict["PORT"]), settings_dict["NAME"])

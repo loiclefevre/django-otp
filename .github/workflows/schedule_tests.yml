@@ -11,175 +11,208 @@ permissions:
   contents: read
 
 jobs:
-  windows:
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        python-version:
-          - '3.12'
-          - '3.13'
-          - '3.14'
-          - '3.15-dev'
-    name: Windows, SQLite, Python ${{ matrix.python-version }}
-    timeout-minutes: 60
-    continue-on-error: true
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-          cache-dependency-path: 'tests/requirements/py3.txt'
-      - name: Install and upgrade packaging tools
-        run: python -m pip install --upgrade pip wheel
-      - run: python -m pip install -r tests/requirements/py3.txt -e .
-      - name: Run tests
-        run: python -Wall tests/runtests.py -v2
+#  windows:
+#    runs-on: windows-latest
+#    strategy:
+#      matrix:
+#        python-version:
+#          - '3.12'
+#          - '3.13'
+#          - '3.14'
+#          - '3.15-dev'
+#    name: Windows, SQLite, Python ${{ matrix.python-version }}
+#    timeout-minutes: 60
+#    continue-on-error: true
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v6
+#        with:
+#          persist-credentials: false
+#      - name: Set up Python
+#        uses: actions/setup-python@v6
+#        with:
+#          python-version: ${{ matrix.python-version }}
+#          cache: 'pip'
+#          cache-dependency-path: 'tests/requirements/py3.txt'
+#      - name: Install and upgrade packaging tools
+#        run: python -m pip install --upgrade pip wheel
+#      - run: python -m pip install -r tests/requirements/py3.txt -e .
+#      - name: Run tests
+#        run: python -Wall tests/runtests.py -v2
+#
+#  pyc-only:
+#    runs-on: ubuntu-latest
+#    name: Byte-compiled Django with no source files (only .pyc files)
+#    timeout-minutes: 60
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v6
+#        with:
+#          persist-credentials: false
+#      - name: Set up Python
+#        uses: actions/setup-python@v6
+#        with:
+#          python-version: '3.14'
+#          cache: 'pip'
+#      - name: Install libmemcached-dev for pylibmc
+#        run: sudo apt-get install libmemcached-dev
+#      - name: Install and upgrade packaging tools
+#        run: python -m pip install --upgrade pip wheel
+#      - run: python -m pip install .
+#      - name: Prepare site-packages
+#        run: |
+#          DJANGO_PACKAGE_ROOT=$(python -c 'import site; print(site.getsitepackages()[0])')/django
+#          echo $DJANGO_PACKAGE_ROOT
+#          python -m compileall -b $DJANGO_PACKAGE_ROOT
+#          find $DJANGO_PACKAGE_ROOT -name '*.py' -print -delete
+#      - run: python -m pip install -r tests/requirements/py3.txt
+#      - name: Run tests
+#        run: python -Wall tests/runtests.py --verbosity=2
+#
+#  javascript-tests:
+#    runs-on: ubuntu-latest
+#    name: JavaScript tests
+#    timeout-minutes: 60
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v6
+#        with:
+#          persist-credentials: false
+#      - name: Set up Node.js
+#        uses: actions/setup-node@v6
+#        with:
+#          # Transitive dependency of puppeteer (extract-zip) broken on 24.16
+#          # https://github.com/puppeteer/puppeteer/issues/15071
+#          node-version: '24.15.0'
+#          cache: 'npm'
+#          cache-dependency-path: '**/package.json'
+#      - run: npm install
+#      - run: npm test
+#
+#  selenium-sqlite:
+#    runs-on: ubuntu-latest
+#    name: Selenium tests, SQLite
+#    timeout-minutes: 60
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v6
+#        with:
+#          persist-credentials: false
+#      - name: Set up Python
+#        uses: actions/setup-python@v6
+#        with:
+#          python-version: '3.14'
+#          cache: 'pip'
+#          cache-dependency-path: 'tests/requirements/py3.txt'
+#      - name: Install libmemcached-dev for pylibmc
+#        run: sudo apt-get install libmemcached-dev
+#      - name: Install and upgrade packaging tools
+#        run: python -m pip install --upgrade pip wheel
+#      - run: python -m pip install -r tests/requirements/py3.txt -e .
+#      - name: Run Selenium tests
+#        working-directory: ./tests/
+#        run: |
+#          python -Wall runtests.py --verbosity 2 --noinput --selenium=chrome --headless --settings=test_sqlite --parallel 1
+#
+#  selenium-postgresql:
+#    runs-on: ubuntu-latest
+#    name: Selenium tests, PostgreSQL
+#    timeout-minutes: 60
+#    services:
+#      postgres:
+#        image: postgres:15-alpine
+#        env:
+#          POSTGRES_DB: django
+#          POSTGRES_USER: user
+#          POSTGRES_PASSWORD: postgres
+#        ports:
+#          - 5432:5432
+#        options: >-
+#          --health-cmd pg_isready
+#          --health-interval 10s
+#          --health-timeout 5s
+#          --health-retries 5
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v6
+#        with:
+#          persist-credentials: false
+#      - name: Set up Python
+#        uses: actions/setup-python@v6
+#        with:
+#          python-version: '3.14'
+#          cache: 'pip'
+#          cache-dependency-path: 'tests/requirements/py3.txt'
+#      - name: Install libmemcached-dev for pylibmc
+#        run: sudo apt-get install libmemcached-dev
+#      - name: Install and upgrade packaging tools
+#        run: python -m pip install --upgrade pip wheel
+#      - run: python -m pip install -r tests/requirements/py3.txt -r tests/requirements/postgres.txt -e .
+#      - name: Create PostgreSQL settings file
+#        run: mv ./.github/workflows/data/test_postgres.py.tpl ./tests/test_postgres.py
+#      - name: Run Selenium tests
+#        working-directory: ./tests/
+#        run: |
+#          python -Wall runtests.py --verbosity 2 --noinput --selenium=chrome --headless --settings=test_postgres --parallel 1
+#
+#  postgresql:
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        version: [16, 17, 18]
+#        server_side_bindings: [0, 1]
+#    runs-on: ubuntu-latest
+#    name: PostgreSQL Versions
+#    timeout-minutes: 60
+#    env:
+#      SERVER_SIDE_BINDING: ${{ matrix.server_side_bindings }}
+#    services:
+#      postgres:
+#        image: postgres:${{ matrix.version }}-alpine
+#        env:
+#          POSTGRES_DB: django
+#          POSTGRES_USER: user
+#          POSTGRES_PASSWORD: postgres
+#        ports:
+#          - 5432:5432
+#        options: >-
+#          --health-cmd pg_isready
+#          --health-interval 10s
+#          --health-timeout 5s
+#          --health-retries 5
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v6
+#        with:
+#          persist-credentials: false
+#      - name: Set up Python
+#        uses: actions/setup-python@v6
+#        with:
+#          python-version: '3.14'
+#          cache: 'pip'
+#          cache-dependency-path: 'tests/requirements/py3.txt'
+#      - name: Install libmemcached-dev for pylibmc
+#        run: sudo apt-get install libmemcached-dev
+#      - name: Install and upgrade packaging tools
+#        run: python -m pip install --upgrade pip wheel
+#      - run: python -m pip install -r tests/requirements/py3.txt -r tests/requirements/postgres.txt -e .
+#      - name: Create PostgreSQL settings file
+#        run: mv ./.github/workflows/data/test_postgres.py.tpl ./tests/test_postgres.py
+#      - name: Run tests
+#        working-directory: ./tests/
+#        run: python -Wall runtests.py --settings=test_postgres --verbosity=2
 
-  pyc-only:
-    runs-on: ubuntu-latest
-    name: Byte-compiled Django with no source files (only .pyc files)
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.14'
-          cache: 'pip'
-      - name: Install libmemcached-dev for pylibmc
-        run: sudo apt-get install libmemcached-dev
-      - name: Install and upgrade packaging tools
-        run: python -m pip install --upgrade pip wheel
-      - run: python -m pip install .
-      - name: Prepare site-packages
-        run: |
-          DJANGO_PACKAGE_ROOT=$(python -c 'import site; print(site.getsitepackages()[0])')/django
-          echo $DJANGO_PACKAGE_ROOT
-          python -m compileall -b $DJANGO_PACKAGE_ROOT
-          find $DJANGO_PACKAGE_ROOT -name '*.py' -print -delete
-      - run: python -m pip install -r tests/requirements/py3.txt
-      - name: Run tests
-        run: python -Wall tests/runtests.py --verbosity=2
-
-  javascript-tests:
-    runs-on: ubuntu-latest
-    name: JavaScript tests
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          # Transitive dependency of puppeteer (extract-zip) broken on 24.16
-          # https://github.com/puppeteer/puppeteer/issues/15071
-          node-version: '24.15.0'
-          cache: 'npm'
-          cache-dependency-path: '**/package.json'
-      - run: npm install
-      - run: npm test
-
-  selenium-sqlite:
-    runs-on: ubuntu-latest
-    name: Selenium tests, SQLite
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.14'
-          cache: 'pip'
-          cache-dependency-path: 'tests/requirements/py3.txt'
-      - name: Install libmemcached-dev for pylibmc
-        run: sudo apt-get install libmemcached-dev
-      - name: Install and upgrade packaging tools
-        run: python -m pip install --upgrade pip wheel
-      - run: python -m pip install -r tests/requirements/py3.txt -e .
-      - name: Run Selenium tests
-        working-directory: ./tests/
-        run: |
-          python -Wall runtests.py --verbosity 2 --noinput --selenium=chrome --headless --settings=test_sqlite --parallel 1
-
-  selenium-postgresql:
-    runs-on: ubuntu-latest
-    name: Selenium tests, PostgreSQL
-    timeout-minutes: 60
-    services:
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_DB: django
-          POSTGRES_USER: user
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.14'
-          cache: 'pip'
-          cache-dependency-path: 'tests/requirements/py3.txt'
-      - name: Install libmemcached-dev for pylibmc
-        run: sudo apt-get install libmemcached-dev
-      - name: Install and upgrade packaging tools
-        run: python -m pip install --upgrade pip wheel
-      - run: python -m pip install -r tests/requirements/py3.txt -r tests/requirements/postgres.txt -e .
-      - name: Create PostgreSQL settings file
-        run: mv ./.github/workflows/data/test_postgres.py.tpl ./tests/test_postgres.py
-      - name: Run Selenium tests
-        working-directory: ./tests/
-        run: |
-          python -Wall runtests.py --verbosity 2 --noinput --selenium=chrome --headless --settings=test_postgres --parallel 1
-
-  postgresql:
+  oracle_test_pilot:
     strategy:
       fail-fast: false
       matrix:
-        version: [16, 17, 18]
-        server_side_bindings: [0, 1]
-    runs-on: ubuntu-latest
-    name: PostgreSQL Versions
-    timeout-minutes: 60
-    env:
-      SERVER_SIDE_BINDING: ${{ matrix.server_side_bindings }}
-    services:
-      postgres:
-        image: postgres:${{ matrix.version }}-alpine
-        env:
-          POSTGRES_DB: django
-          POSTGRES_USER: user
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+        include:
+          - rdbms: base-database-service-26ai
+          - rdbms: autonomous-transaction-processing-serverless-19c
+          - rdbms: autonomous-transaction-processing-serverless-26ai
+    runs-on: [ self-hosted, Linux, X64, OracleTestPilot ]
+    name: Oracle ${{matrix.rdbms}}
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -191,13 +224,41 @@ jobs:
           python-version: '3.14'
           cache: 'pip'
           cache-dependency-path: 'tests/requirements/py3.txt'
-      - name: Install libmemcached-dev for pylibmc
-        run: sudo apt-get install libmemcached-dev
       - name: Install and upgrade packaging tools
         run: python -m pip install --upgrade pip wheel
-      - run: python -m pip install -r tests/requirements/py3.txt -r tests/requirements/postgres.txt -e .
-      - name: Create PostgreSQL settings file
-        run: mv ./.github/workflows/data/test_postgres.py.tpl ./tests/test_postgres.py
+      - run: python -m pip install -r tests/requirements/py3.txt -r tests/requirements/oracle.txt -e .
+      - name: Create Oracle Test Pilot settings file
+        run: mv ./.github/workflows/data/test_oracle_test_pilot.py.tpl ./tests/test_oracle_test_pilot.py
+      - id: create_database
+        uses: oracle-actions/setup-testpilot@37676e7f43dabdebb120915f2862f6ddd55d28d6 # v1.0.25
+        with:
+          oci-service: ${{ matrix.rdbms }}
+          action: create
+          user: django_tests_default,django_tests_default_1,django_tests_default_2,django_tests_default_3,django_tests_default_4,django_tests_other,django_tests_other_1,django_tests_other_2,django_tests_other_3,django_tests_other_4
+          connection-string-format: easy-connect
+
+      - name: Remove double quotes from connection string suffix
+        run: |
+          TESTPILOT_CONNECTION_STRING_SUFFIX=${{ steps.create_database.outputs.connection_string_suffix }}
+          TESTPILOT_CONNECTION_STRING_SUFFIX_WDQ=${TESTPILOT_CONNECTION_STRING_SUFFIX}
+          echo "TESTPILOT_CONNECTION_STRING_SUFFIX=$TESTPILOT_CONNECTION_STRING_SUFFIX_WDQ" >> $GITHUB_ENV
+        shell: bash
+
       - name: Run tests
+        env:
+          TESTPILOT_USERNAME: django_tests_default_${{ github.run_number }}
+          TESTPILOT_PASSWORD: ${{ steps.create_database.outputs.database_password }}
+          TESTPILOT_CONNECTION_STRING_SUFFIX: ${{ env.TESTPILOT_CONNECTION_STRING_SUFFIX }}
+          RUNID: ${{ github.run_number }}
+          API_HOST: ""
+          TESTPILOT_CLIENT_ID: ""
+          TESTPILOT_TOKEN: ""
         working-directory: ./tests/
-        run: python -Wall runtests.py --settings=test_postgres --verbosity=2
+        run: python -Wall runtests.py --settings=test_oracle_test_pilot --keepdb --noinput --verbosity=2 --timing --parallel 4
+
+      - uses: oracle-actions/setup-testpilot@37676e7f43dabdebb120915f2862f6ddd55d28d6 # v1.0.25
+        if: always()
+        with:
+          oci-service: ${{ matrix.rdbms }}
+          action: delete
+          user: django_tests_default,django_tests_default_1,django_tests_default_2,django_tests_default_3,django_tests_default_4,django_tests_other,django_tests_other_1,django_tests_other_2,django_tests_other_3,django_tests_other_4

@@ -1,11 +1,14 @@
 import collections
+import copy
 import gc
 import logging
+import multiprocessing
 import os
 import re
 import sys
 import time
 import warnings
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 from functools import wraps
 from inspect import iscoroutinefunction
@@ -206,6 +209,7 @@ def setup_databases(
 
     old_names = []
     serialize_connections = []
+    parallel_clone_jobs = []
 
     for db_name, aliases in test_databases.values():
         first_alias = None
@@ -225,18 +229,31 @@ def setup_databases(
                     if serialized_aliases is None or alias in serialized_aliases:
                         serialize_connections.append(connection)
                 if parallel > 1:
-                    for index in range(parallel):
-                        with time_keeper.timed("  Cloning '%s'" % alias):
-                            connection.creation.clone_test_db(
-                                suffix=str(index + 1),
-                                verbosity=verbosity,
-                                keepdb=keepdb,
-                            )
+                    if connection.features.can_clone_databases_in_parallel:
+                        parallel_clone_jobs.append((connection, alias))
+                    else:
+                        clone_test_databases(
+                            connection,
+                            alias,
+                            parallel,
+                            verbosity,
+                            keepdb,
+                            time_keeper,
+                        )
             # Configure all other connections as mirrors of the first one
             else:
                 connections[alias].creation.set_as_test_mirror(
                     connections[first_alias].settings_dict
                 )
+
+    if parallel_clone_jobs:
+        clone_test_databases_in_parallel(
+            parallel_clone_jobs,
+            parallel,
+            verbosity,
+            keepdb,
+            time_keeper,
+        )
 
     # Configure the test mirrors.
     for alias, mirror_alias in mirrored_aliases.items():
@@ -259,6 +276,90 @@ def setup_databases(
             connections[alias].force_debug_cursor = True
 
     return old_names
+
+
+def clone_test_databases(connection, alias, parallel, verbosity, keepdb, time_keeper):
+    for index in range(parallel):
+        with time_keeper.timed("  Cloning '%s'" % alias):
+            connection.creation.clone_test_db(
+                suffix=str(index + 1),
+                verbosity=verbosity,
+                keepdb=keepdb,
+            )
+
+
+def clone_test_databases_in_parallel(
+    clone_jobs,
+    parallel,
+    verbosity,
+    keepdb,
+    time_keeper,
+):
+    clone_tasks = []
+    for connection, alias in clone_jobs:
+        for index in range(parallel):
+            clone_tasks.append(
+                (
+                    alias,
+                    "__django_clone_%s_%s" % (alias, index + 1),
+                    str(index + 1),
+                    copy.deepcopy(connection.settings_dict),
+                    verbosity,
+                    keepdb,
+                )
+            )
+
+    try:
+        multiprocessing_context = multiprocessing.get_context("fork")
+    except ValueError:
+        for connection, alias in clone_jobs:
+            clone_test_databases(
+                connection,
+                alias,
+                parallel,
+                verbosity,
+                keepdb,
+                time_keeper,
+            )
+        return
+
+    max_workers = min(parallel * len(clone_jobs), len(clone_tasks))
+    # Avoid forking child processes with live database connections.
+    connections.close_all()
+    with ProcessPoolExecutor(
+        max_workers=max_workers,
+        mp_context=multiprocessing_context,
+    ) as executor:
+        futures = [
+            executor.submit(_clone_test_database_worker, clone_task)
+            for clone_task in clone_tasks
+        ]
+        for future in futures:
+            alias, duration = future.result()
+            if hasattr(time_keeper, "records"):
+                time_keeper.records["  Cloning '%s'" % alias].append(duration)
+
+
+def _clone_test_database_worker(clone_task):
+    alias, clone_alias, suffix, settings_dict, verbosity, keepdb = clone_task
+
+    from django.db import connections
+
+    start_time = time.perf_counter()
+    connections.close_all()
+    connections.settings[clone_alias] = settings_dict
+    clone_connection = connections[clone_alias]
+    try:
+        clone_connection.creation.clone_test_db(
+            suffix=suffix,
+            verbosity=verbosity,
+            keepdb=keepdb,
+        )
+    finally:
+        clone_connection.close()
+        del connections[clone_alias]
+        connections.settings.pop(clone_alias, None)
+    return alias, time.perf_counter() - start_time
 
 
 def iter_test_cases(tests):
